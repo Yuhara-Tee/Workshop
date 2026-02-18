@@ -1,0 +1,295 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Send, Bot, User, Cpu, WifiOff, Wifi, Database, Info, RefreshCw } from 'lucide-react';
+
+const App = () => {
+  const [messages, setMessages] = useState([
+    {
+      role: 'assistant',
+      content: 'สวัสดีครับอาจารย์! ผมคือบอท PLC (โหมดออฟไลน์) \n\nตอนนี้ระบบ AI เชื่อมต่อไม่ได้ แต่ผมมีความรู้พื้นฐานฝังอยู่ในตัวครับ ลองถามเรื่อง:\n- LD / LDP / LDF\n- SET / RST\n- Timer (TON / TOF)\n- Counter\n- MOV / CMP\n\nพิมพ์มาได้เลยครับ!'
+    }
+  ]);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping]);
+
+  // ฐานข้อมูลความรู้ฝังในตัว (Embedded Knowledge Base)
+  const knowledgeBase = [
+    {
+      keywords: ['ld', 'load', 'หน้าสัมผัสปกติเปิด', 'no contact'],
+      response: `📌 **คำสั่ง LD (Load)**
+คือคำสั่งเริ่มต้นของวงจร หรือหน้าสัมผัสปกติเปิด (Normally Open - NO)
+เปรียบเสมือนสวิตช์ที่ยังไม่ถูกกด กระแสไฟจะไหลผ่านไม่ได้จนกว่าจะมีสัญญาณมาสั่งงาน
+
+**รูปแบบ Ladder:**
+|---[ ]---|
+
+**การใช้งาน:**
+ใช้เริ่ม rung ใหม่ หรือต่ออนุกรมกับหน้าสัมผัสอื่น`
+    },
+    {
+      keywords: ['ldi', 'ld not', 'nc', 'หน้าสัมผัสปกติปิด'],
+      response: `📌 **คำสั่ง LDI / LD NOT (Load Inverse)**
+คือหน้าสัมผัสปกติปิด (Normally Closed - NC)
+กระแสไฟจะไหลผ่านได้ตลอดเวลา จนกว่าจะมีสัญญาณมาสั่งให้หยุด (ตัดวงจร)
+
+**รูปแบบ Ladder:**
+|---[/]---|
+
+**การใช้งาน:**
+ใช้เป็นปุ่ม Stop หรือ Interlock เพื่อป้องกันการทำงานพร้อมกัน`
+    },
+    {
+      keywords: ['out', 'coil', 'output', 'คอยล์'],
+      response: `📌 **คำสั่ง OUT (Output Coil)**
+ใช้สำหรับขับอุปกรณ์เอาต์พุต (เช่น Y, Q) หรือรีเลย์ภายใน (M) ให้ทำงาน
+เมื่อเงื่อนไขด้านหน้าเป็นจริง Coil จะทำงาน (ON)
+
+**รูปแบบ Ladder:**
+|---( )---|
+
+**หมายเหตุ:**
+หากเงื่อนไขด้านหน้าหยุดทำงาน Coil ก็จะหยุดทำงานทันที (ไม่จำสถานะ)`
+    },
+    {
+      keywords: ['set', 'rst', 'reset', 'จำสถานะ'],
+      response: `📌 **คำสั่ง SET และ RST (Reset)**
+เป็นคำสั่งที่ใช้ควบคุมสถานะแบบค้างค่า (Latch)
+
+🔹 **SET:** เมื่อทำงานแล้ว สถานะจะ ON ค้างตลอดไป แม้สัญญาณ input จะหายไป
+🔹 **RST:** ใช้สำหรับสั่งให้บิตที่ ON อยู่ กลับมาเป็น OFF
+
+**ตัวอย่าง Ladder:**
+X0      Y0
+|--[ ]--(SET)--|  <-- กด X0 แล้ว Y0 ติดค้าง
+
+X1      Y0
+|--[ ]--(RST)--|  <-- กด X1 เพื่อสั่งดับ Y0`
+    },
+    {
+      keywords: ['timer', 'ton', 't0', 'เวลา'],
+      response: `📌 **คำสั่ง Timer (ตัวตั้งเวลา)**
+ส่วนใหญ่ใช้ **TON (Timer On Delay)** คือจับเวลาเมื่อเงื่อนไขเป็นจริง
+
+**Mitsubishi (FX/Q Series):**
+|--[ X0 ]-------( T0 K50 )--|
+*(เมื่อ X0 ติดนานครบ 5 วินาที, Contact T0 จะทำงาน)*
+*K50 = 5.0 วินาที (Base 100ms)*
+
+**Siemens (S7-1200):**
+ใช้บล็อก TON โดยกำหนดขา PT (Preset Time) เป็น T#5s`
+    },
+    {
+      keywords: ['counter', 'cnt', 'c0', 'นับ'],
+      response: `📌 **คำสั่ง Counter (ตัวนับ)**
+ใช้นับจำนวนครั้งของสัญญาณ Input
+
+**Mitsubishi:**
+|--[ X0 ]-------( C0 K10 )--|
+*(เมื่อ X0 on/off ครบ 10 ครั้ง, Contact C0 จะทำงาน)*
+ใช้คำสั่ง RST C0 เพื่อรีเซ็ตค่าเป็น 0
+
+**Siemens:**
+ใช้บล็อก CTU (Count Up) ขา PV ระบุจำนวนที่ต้องการนับ`
+    },
+    {
+      keywords: ['mov', 'move', 'ย้ายข้อมูล'],
+      response: `📌 **คำสั่ง MOV (Move Data)**
+ใช้สำหรับย้ายหรือคัดลอกข้อมูลจากต้นทางไปปลายทาง
+
+**รูปแบบ:** [MOV  S  D]
+S = Source (ต้นทาง)
+D = Destination (ปลายทาง)
+
+**ตัวอย่าง:**
+|--[ M8000 ]----[ MOV K10 D0 ]--|
+*(ย้ายค่าคงที่ 10 ไปเก็บไว้ใน Data Register D0)*`
+    },
+    {
+      keywords: ['plsy', 'pulse', 'servo', 'stepper'],
+      response: `📌 **คำสั่ง PLSY (Pulse Output)**
+ใช้สำหรับขับ Servo หรือ Stepper Motor (เฉพาะ PLC รุ่นทรานซิสเตอร์)
+
+**รูปแบบ:** [PLSY  S1  S2  D]
+S1 = ความถี่ (Hz)
+S2 = จำนวนพัลส์ (0 = ไม่จำกัด)
+D = ขา Output (เช่น Y0)
+
+**ตัวอย่าง:**
+[PLSY K1000 K5000 Y0]
+*จ่ายพัลส์ความถี่ 1kHz จำนวน 5000 พัลส์ ออกที่ Y0*`
+    },
+    {
+      keywords: ['mitsubishi', 'fx', 'q series'],
+      response: `🏭 **Mitsubishi PLC Basics**
+- **Input:** X (X0, X1...)
+- **Output:** Y (Y0, Y1...)
+- **Internal Relay:** M (M0, M1...)
+- **Data Register:** D (D0, D100...)
+- **Timer:** T (T0...)
+- **Counter:** C (C0...)
+
+นิยมเขียนแบบ Ladder ใช้งานง่าย แพร่หลายในไทยครับ`
+    },
+    {
+      keywords: ['siemens', 's7', 'tia portal'],
+      response: `🏭 **Siemens PLC Basics**
+- **Input:** I (I0.0, I0.1...)
+- **Output:** Q (Q0.0, Q0.1...)
+- **Memory:** M (M0.0...) หรือ Data Block (DB)
+- **Timer:** IEC Timer (TON, TOF)
+
+เน้นการเขียนแบบ Function Block (FB/FC) และ Structure Text (ST) เหมาะกับงานซับซ้อน`
+    }
+  ];
+
+  // Logic การค้นหาคำตอบ (Fuzzy Match อย่างง่าย)
+  const getBotResponse = (text) => {
+    const lowerText = text.toLowerCase();
+    
+    // ค้นหาว่ามี Keyword ไหนตรงกับ Input บ้าง
+    const match = knowledgeBase.find(item => 
+      item.keywords.some(keyword => lowerText.includes(keyword))
+    );
+
+    if (match) return match.response;
+
+    // Default Response ถ้าไม่ตรงกับ Keyword ใดๆ
+    return `ขออภัยครับ ในโหมดออฟไลน์ผมรู้จักคำสั่งพื้นฐานเท่านั้น 😅
+    
+ลองพิมพ์คำว่า:
+👉 **LD** (คำสั่ง Load)
+👉 **Timer** (การตั้งเวลา)
+👉 **Counter** (การนับ)
+👉 **SET** (การจำสถานะ)
+👉 **MOV** (การย้ายข้อมูล)
+
+เดี๋ยวผมอธิบายให้ฟังครับ!`;
+  };
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+
+    const userText = input;
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: userText }]);
+    
+    // จำลอง Delay การพิมพ์เพื่อความสมจริง
+    setIsTyping(true);
+    setTimeout(() => {
+      const response = getBotResponse(userText);
+      setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+      setIsTyping(false);
+    }, 600); 
+  };
+
+  const quickTags = ["LD คืออะไร", "สอนใช้ Timer", "SET กับ RST", "คำสั่ง MOV", "Pulse Output"];
+
+  return (
+    <div className="flex flex-col h-screen bg-slate-100 font-sans text-slate-800">
+      {/* Header */}
+      <header className="bg-slate-800 text-white p-4 shadow-md flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="bg-green-500/20 p-2 rounded-lg backdrop-blur-md border border-green-500/50">
+            <Database size={24} className="text-green-400" />
+          </div>
+          <div>
+            <h1 className="font-bold text-lg leading-none">PLC Guru (Offline)</h1>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              <span className="text-[10px] text-green-300 uppercase tracking-wider font-medium">Internal Database Ready</span>
+            </div>
+          </div>
+        </div>
+        <button onClick={() => setMessages([messages[0]])} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+          <RefreshCw size={20} />
+        </button>
+      </header>
+
+      {/* Chat Area */}
+      <main className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`flex gap-3 max-w-[90%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 shadow-sm ${
+                msg.role === 'user' ? 'bg-blue-600' : 'bg-white'
+              }`}>
+                {msg.role === 'user' ? <User size={18} className="text-white" /> : <Bot size={18} className="text-green-600" />}
+              </div>
+              <div className={`p-3.5 rounded-2xl shadow-sm text-sm leading-relaxed whitespace-pre-wrap ${
+                msg.role === 'user' 
+                  ? 'bg-blue-600 text-white rounded-tr-none' 
+                  : 'bg-white text-slate-700 rounded-tl-none border border-slate-200'
+              }`}>
+                {msg.content}
+              </div>
+            </div>
+          </div>
+        ))}
+        
+        {isTyping && (
+          <div className="flex items-center gap-2 ml-12 text-slate-400 text-xs">
+            <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></span>
+            <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-75"></span>
+            <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-150"></span>
+            กำลังค้นหาในฐานข้อมูล...
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </main>
+
+      {/* Input Area */}
+      <footer className="p-4 bg-white border-t border-slate-200">
+        <div className="flex gap-2 overflow-x-auto pb-3 no-scrollbar">
+          {quickTags.map(tag => (
+            <button 
+              key={tag}
+              onClick={() => setInput(tag)}
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-xs text-slate-600 hover:bg-green-50 hover:text-green-700 hover:border-green-200 transition-colors whitespace-nowrap"
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+        
+        <form onSubmit={handleSend} className="flex gap-2 relative">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="พิมพ์ชื่อคำสั่งที่นี่..."
+            className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-500 outline-none"
+          />
+          <button 
+            type="submit" 
+            disabled={!input.trim()}
+            className="bg-slate-800 text-white p-3 rounded-xl hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <Send size={20} />
+          </button>
+        </form>
+        <div className="flex justify-center mt-2">
+            <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                <WifiOff size={10} /> Offline Mode: ทำงานได้ทันที ไม่ต้องใช้ API Key
+            </p>
+        </div>
+      </footer>
+      
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
+    </div>
+  );
+};
+
+export default App;
+
